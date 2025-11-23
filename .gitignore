@@ -1,2 +1,5 @@
 venv/
 src/__pycache__/
+__pycache__/
+*.pyc
+music_tokens.npy

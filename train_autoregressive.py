@@ -9,7 +9,7 @@ import math
 
 # --- Configuration ---
 TOKENS_FILE = "music_tokens.npy"
-BATCH_SIZE = 4 # Adjust based on VRAM
+BATCH_SIZE = 1 # Adjust based on VRAM
 NUM_EPOCHS = 20
 LEARNING_RATE = 3e-4
 SEQ_LEN = 4096 # Context length (must be <= token sequence length)
