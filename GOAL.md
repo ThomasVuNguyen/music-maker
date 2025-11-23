@@ -4,9 +4,15 @@ I have this dataset lewtun/music_genres (19.9k rows), with the 'audio' column is
 
 Help me train a tokenizer on all that.
 
+python inspect_dataset.py
+python train_tokenizer.py
+
 # Goal 2
 
 Help me train an autocompletion model, 100M parameter on all that data
+
+python pretokenize.py
+python train_autoregressive.py
 
 # Goal 3
 

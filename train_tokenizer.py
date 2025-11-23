@@ -63,12 +63,16 @@ class VectorQuantizer(nn.Module):
 class Encoder(nn.Module):
     def __init__(self, in_channels, hidden_channels, embedding_dim):
         super(Encoder, self).__init__()
+        # Strides: 4, 4, 4, 5 = 320x downsampling
+        # 1323000 / 320 = 4134.375 -> ~4135 tokens
         self.net = nn.Sequential(
-            nn.Conv1d(in_channels, hidden_channels, 4, stride=2, padding=1),
+            nn.Conv1d(in_channels, hidden_channels, 4, stride=4, padding=0),
             nn.ReLU(),
-            nn.Conv1d(hidden_channels, hidden_channels, 4, stride=2, padding=1),
+            nn.Conv1d(hidden_channels, hidden_channels, 4, stride=4, padding=0),
             nn.ReLU(),
-            nn.Conv1d(hidden_channels, embedding_dim, 3, stride=1, padding=1)
+            nn.Conv1d(hidden_channels, hidden_channels, 4, stride=4, padding=0),
+            nn.ReLU(),
+            nn.Conv1d(hidden_channels, embedding_dim, 5, stride=5, padding=0)
         )
 
     def forward(self, x):
@@ -77,12 +81,15 @@ class Encoder(nn.Module):
 class Decoder(nn.Module):
     def __init__(self, embedding_dim, hidden_channels, out_channels):
         super(Decoder, self).__init__()
+        # Inverse of Encoder
         self.net = nn.Sequential(
-            nn.Conv1d(embedding_dim, hidden_channels, 3, stride=1, padding=1),
+            nn.ConvTranspose1d(embedding_dim, hidden_channels, 5, stride=5, padding=0),
             nn.ReLU(),
-            nn.ConvTranspose1d(hidden_channels, hidden_channels, 4, stride=2, padding=1),
+            nn.ConvTranspose1d(hidden_channels, hidden_channels, 4, stride=4, padding=0),
             nn.ReLU(),
-            nn.ConvTranspose1d(hidden_channels, out_channels, 4, stride=2, padding=1)
+            nn.ConvTranspose1d(hidden_channels, hidden_channels, 4, stride=4, padding=0),
+            nn.ReLU(),
+            nn.ConvTranspose1d(hidden_channels, out_channels, 4, stride=4, padding=0)
         )
 
     def forward(self, x):
@@ -108,7 +115,7 @@ def collate_fn(batch):
     # We'll just stack them.
     # batch is list of dicts
     tensors = []
-    target_length = 1323000 # 30s * 44100Hz
+    target_length = 1323200 # Divisible by 320 (320 * 4135)
     
     for item in batch:
         # item['audio']['array'] is numpy array
