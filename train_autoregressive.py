@@ -12,8 +12,9 @@ TOKENS_FILE = "music_tokens.npy"
 BATCH_SIZE = 1 # Adjust based on VRAM
 NUM_EPOCHS = 20
 LEARNING_RATE = 3e-4
-SEQ_LEN = 4096 # Context length (must be <= token sequence length)
-VOCAB_SIZE = 512 # Matches NUM_EMBEDDINGS in tokenizer
+SEQ_LEN = 512 # Reduced from 4096 since we have 8x more tokens now
+VOCAB_SIZE = 1024 # EnCodec uses 1024 tokens per codebook
+NUM_CODEBOOKS = 8 # EnCodec uses 8 quantization levels
 EMBED_DIM = 768
 NUM_LAYERS = 12
 NUM_HEADS = 12
@@ -21,7 +22,7 @@ DROPOUT = 0.1
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 SAVE_PATH = "autocompletion_model.pt"
 
-# --- Model Definition (GPT-style) ---
+# --- Model Definition (GPT-style for multi-codebook) ---
 
 class CausalSelfAttention(nn.Module):
     def __init__(self, embed_dim, num_heads, dropout):
@@ -41,10 +42,6 @@ class CausalSelfAttention(nn.Module):
         qkv = self.qkv(x).reshape(B, T, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
         q, k, v = qkv[0], qkv[1], qkv[2]
 
-        # Flash Attention if available (PyTorch 2.0+)
-        # output = torch.nn.functional.scaled_dot_product_attention(q, k, v, is_causal=True, dropout_p=0.1 if self.training else 0)
-        
-        # Manual implementation for compatibility/clarity
         att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
         mask = torch.tril(torch.ones(T, T, device=x.device)).view(1, 1, T, T)
         att = att.masked_fill(mask == 0, float('-inf'))
@@ -82,29 +79,56 @@ class Block(nn.Module):
         x = x + self.mlp(self.ln2(x))
         return x
 
-class GPT(nn.Module):
-    def __init__(self, vocab_size, embed_dim, num_layers, num_heads, max_len, dropout):
+class MultiCodebookGPT(nn.Module):
+    """GPT model that handles EnCodec's multi-codebook tokens"""
+    def __init__(self, vocab_size, num_codebooks, embed_dim, num_layers, num_heads, max_len, dropout):
         super().__init__()
-        self.token_embedding = nn.Embedding(vocab_size, embed_dim)
+        self.num_codebooks = num_codebooks
+        
+        # Separate embedding for each codebook
+        self.token_embeddings = nn.ModuleList([
+            nn.Embedding(vocab_size, embed_dim) for _ in range(num_codebooks)
+        ])
         self.position_embedding = nn.Embedding(max_len, embed_dim)
         self.blocks = nn.Sequential(*[Block(embed_dim, num_heads, dropout) for _ in range(num_layers)])
         self.ln_f = nn.LayerNorm(embed_dim)
-        self.head = nn.Linear(embed_dim, vocab_size, bias=False)
+        
+        # Separate head for each codebook
+        self.heads = nn.ModuleList([
+            nn.Linear(embed_dim, vocab_size, bias=False) for _ in range(num_codebooks)
+        ])
 
     def forward(self, idx, targets=None):
-        B, T = idx.shape
+        # idx: [B, num_codebooks, T]
+        B, n_q, T = idx.shape
+        assert n_q == self.num_codebooks
         
         # Create position indices
         pos = torch.arange(0, T, dtype=torch.long, device=idx.device)
         
-        x = self.token_embedding(idx) + self.position_embedding(pos)
+        # Sum embeddings from all codebooks
+        x = sum(self.token_embeddings[i](idx[:, i, :]) for i in range(self.num_codebooks))
+        x = x + self.position_embedding(pos)  # [B, T, embed_dim]
+        
         x = self.blocks(x)
         x = self.ln_f(x)
-        logits = self.head(x)
+        
+        # Get logits for each codebook
+        logits = [head(x) for head in self.heads]  # List of [B, T, vocab_size]
+        logits = torch.stack(logits, dim=1)  # [B, num_codebooks, T, vocab_size]
 
         loss = None
         if targets is not None:
-            loss = torch.nn.functional.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
+            # targets: [B, num_codebooks, T]
+            # Compute loss for each codebook separately
+            losses = []
+            for i in range(self.num_codebooks):
+                cb_loss = torch.nn.functional.cross_entropy(
+                    logits[:, i, :, :].reshape(-1, logits.size(-1)),
+                    targets[:, i, :].reshape(-1)
+                )
+                losses.append(cb_loss)
+            loss = sum(losses) / len(losses)
 
         return logits, loss
 
@@ -112,37 +136,34 @@ class GPT(nn.Module):
 
 class TokenDataset(Dataset):
     def __init__(self, tokens_file, seq_len):
-        self.data = np.load(tokens_file) # [N, L]
+        self.data = np.load(tokens_file, allow_pickle=True)  # List of [n_q, T] arrays
         self.seq_len = seq_len
-        # We can train on random crops or full sequences. 
-        # Since L ~ 4135 and seq_len ~ 4096, we can just take the first 4096 or random crop.
-        # Let's do random crop for robustness.
 
     def __len__(self):
         return len(self.data)
 
     def __getitem__(self, idx):
-        seq = self.data[idx] # [L]
-        # If sequence is shorter than seq_len, pad? 
-        # Our tokenizer produces fixed length ~4135, so it should be fine.
-        
-        if len(seq) <= self.seq_len + 1:
-             # Pad if necessary (unlikely with current settings)
-             pad = np.zeros(self.seq_len + 1 - len(seq), dtype=seq.dtype)
-             seq = np.concatenate([seq, pad])
+        seq = self.data[idx]  # [n_q, T]
         
         # Random crop
-        max_start = len(seq) - self.seq_len - 1
-        start = np.random.randint(0, max_start + 1)
-        chunk = seq[start : start + self.seq_len + 1]
+        if seq.shape[1] <= self.seq_len + 1:
+            # Pad if necessary
+            pad_len = self.seq_len + 1 - seq.shape[1]
+            seq = np.pad(seq, ((0, 0), (0, pad_len)), mode='constant', constant_values=0)
         
-        x = torch.tensor(chunk[:-1], dtype=torch.long)
-        y = torch.tensor(chunk[1:], dtype=torch.long)
+        max_start = seq.shape[1] - self.seq_len - 1
+        start = np.random.randint(0, max_start + 1) if max_start > 0 else 0
+        chunk = seq[:, start : start + self.seq_len + 1]  # [n_q, seq_len+1]
+        
+        x = torch.tensor(chunk[:, :-1], dtype=torch.long)  # [n_q, seq_len]
+        y = torch.tensor(chunk[:, 1:], dtype=torch.long)   # [n_q, seq_len]
+        
+        # Transpose to [seq_len, n_q] then back to [n_q, seq_len] for batch consistency
         return x, y
 
 def main():
     if not os.path.exists(TOKENS_FILE):
-        print(f"Error: {TOKENS_FILE} not found. Run pretokenize.py first.")
+        print(f"Error: {TOKENS_FILE} not found. Run encodec_pretokenize.py first.")
         return
 
     print("Loading dataset...")
@@ -150,10 +171,9 @@ def main():
     dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=4)
 
     print("Initializing model...")
-    # Max len needs to cover the sequence length
-    model = GPT(VOCAB_SIZE, EMBED_DIM, NUM_LAYERS, NUM_HEADS, max_len=SEQ_LEN, dropout=DROPOUT).to(DEVICE)
+    model = MultiCodebookGPT(VOCAB_SIZE, NUM_CODEBOOKS, EMBED_DIM, NUM_LAYERS, NUM_HEADS, 
+                             max_len=SEQ_LEN, dropout=DROPOUT).to(DEVICE)
     
-    # Check parameter count
     params = sum(p.numel() for p in model.parameters())
     print(f"Model parameters: {params/1e6:.2f}M")
 

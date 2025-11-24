@@ -3,3 +3,5 @@ src/__pycache__/
 __pycache__/
 *.pyc
 music_tokens.npy
+autocompletion_model.pt
+tokenizer_checkpoint.pt
