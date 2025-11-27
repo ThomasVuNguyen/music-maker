@@ -20,7 +20,7 @@ def main():
     print(f"EnCodec loaded on {DEVICE}")
 
     print("Loading dataset...")
-    ds = load_dataset("lewtun/music_genres", split="train")
+    ds = load_dataset("Vyvo-Research/AST-Music-Data-291K", split="train")
     
     all_tokens = []
 

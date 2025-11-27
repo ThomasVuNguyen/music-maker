@@ -3,7 +3,7 @@ import torchaudio
 
 def inspect():
     print("Loading dataset...")
-    ds = load_dataset("lewtun/music_genres", split="train")
+    ds = load_dataset("Vyvo-Research/AST-Music-Data-291K", split="train")
     print(f"Dataset size: {len(ds)}")
     
     sample = ds[0]

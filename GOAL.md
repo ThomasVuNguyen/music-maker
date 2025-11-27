@@ -1,6 +1,6 @@
 # Goal 1 ✓
 
-I have this dataset lewtun/music_genres (19.9k rows), with the 'audio' column is made of 30s audio files.
+Using dataset Vyvo-Research/AST-Music-Data-291K, with the 'audio' column containing 10s audio files.
 
 ~~Help me train a tokenizer on all that.~~
 
