@@ -12,7 +12,7 @@ from encodec.utils import convert_audio
 from train_autoregressive import MultiCodebookGPT, VOCAB_SIZE, NUM_CODEBOOKS, EMBED_DIM, NUM_LAYERS, NUM_HEADS, SEQ_LEN, DROPOUT
 
 # Configuration
-DEVICE = "cpu"  # Use CPU to avoid OOM during generation
+DEVICE = "cuda"  # Use CPU to avoid OOM during generation
 
 def load_models(device):
     print("Loading EnCodec...")

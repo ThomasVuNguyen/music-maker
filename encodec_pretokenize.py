@@ -64,9 +64,13 @@ def main():
     # Each item is [n_q, T] where n_q=8 (number of codebooks)
     print(f"\nTokenized {len(all_tokens)} audio files")
     print(f"Token shape per file: {all_tokens[0].shape}")
-    
-    # Save as list of arrays (since T might vary slightly)
-    np.save(OUTPUT_FILE, all_tokens, allow_pickle=True)
+
+    # Save as object array to handle variable-length sequences
+    all_tokens_array = np.empty(len(all_tokens), dtype=object)
+    for i, tokens in enumerate(all_tokens):
+        all_tokens_array[i] = tokens
+
+    np.save(OUTPUT_FILE, all_tokens_array, allow_pickle=True)
     print(f"Tokens saved to {OUTPUT_FILE}")
 
 if __name__ == "__main__":

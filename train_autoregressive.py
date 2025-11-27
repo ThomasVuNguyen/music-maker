@@ -9,10 +9,10 @@ import math
 
 # --- Configuration ---
 TOKENS_FILE = "music_tokens.npy"
-BATCH_SIZE = 1 # Adjust based on VRAM
-NUM_EPOCHS = 20
+BATCH_SIZE = 2 # Adjust based on VRAM
+NUM_EPOCHS = 100
 LEARNING_RATE = 3e-4
-SEQ_LEN = 512 # Reduced from 4096 since we have 8x more tokens now
+SEQ_LEN = 2048 # Reduced from 4096 since we have 8x more tokens now
 VOCAB_SIZE = 1024 # EnCodec uses 1024 tokens per codebook
 NUM_CODEBOOKS = 8 # EnCodec uses 8 quantization levels
 EMBED_DIM = 768
