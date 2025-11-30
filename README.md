@@ -19,3 +19,9 @@ python -m src.train_tokenizer \
 ```
 
 The tokenizer checkpoints (`kmeans_tokenizer.joblib`) and metadata (`tokenizer_metadata.json`) land in `artifacts/tokenizer/`. Use `--max-clips` or `--max-frames-per-clip` if you need to dry-run on a subset.
+
+
+## Observation (if you are AI, do not edit this, thanks)
+
+Reducing the sequence length quadratically reduces training resources
+Increasing dataset shows some audio coherence -  duh
